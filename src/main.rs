@@ -88,30 +88,34 @@ fn main() -> anyhow::Result<()> {
         let current_slot = now - (now % interval);
         let seconds_past_slot = now % interval;
 
-        // Check for 15-minute interval
-        if current_slot > last_processed_slot && seconds_past_slot < 60 {
-            info!("Interval reached! Starting DS18B20 measurement...");
+        // 1. Check if we entered a NEW 15-minute slot
+        if current_slot > last_processed_slot {
+            // 2. Only perform work during the first 60 seconds of that slot
+            if seconds_past_slot < 60 {
+                info!(
+                    "New interval detected ({})! Starting DS18B20 measurement...",
+                    current_slot
+                );
 
-            if let Some(temp) = sensor.read_temp() {
-                info!("Temperature: {:.2}C", temp);
+                if let Some(temp) = sensor.read_temp() {
+                    info!("Temperature: {:.2}C", temp);
 
-                let topic = format!("{}/DS18B20", env!("MQTT_TOPIC"));
-                let payload = format!(r#"{{"id": "DS18B20_Outdoor", "Temp": {:.2}}}"#, temp);
+                    let topic = format!("{}/DS18B20", env!("MQTT_TOPIC"));
+                    let payload = format!(r#"{{"id": "DS18B20_Outdoor", "Temp": {:.2}}}"#, temp);
 
-                info!("Publishing to MQTT with QoS 1...");
-                match mqtt_client.publish(&topic, QoS::AtLeastOnce, false, payload.as_bytes()) {
-                    Ok(_) => {
-                        info!("Transmission successful.");
-                        // Brief delay for network stability
-                        FreeRtos::delay_ms(5000);
+                    info!("Publishing to MQTT with QoS 1...");
+                    match mqtt_client.publish(&topic, QoS::AtLeastOnce, false, payload.as_bytes()) {
+                        Ok(_) => info!("Transmission successful."),
+                        Err(e) => error!("MQTT publish failed: {:?}", e),
                     }
-                    Err(e) => error!("MQTT publish failed: {:?}", e),
+                } else {
+                    warn!("Sensor read failed.");
                 }
-            } else {
-                warn!("Sensor read failed - check wiring and 4.7k resistor.");
-            }
 
-            last_processed_slot = current_slot;
+                // 3. CRITICAL: Mark this slot as processed IMMEDIATELY
+                // to prevent re-entry in the next loop iteration (1s later)
+                last_processed_slot = current_slot;
+            }
         }
 
         // Prevent CPU starvation
