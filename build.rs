@@ -13,6 +13,7 @@ fn main() {
         "MQTT_USER",
         "MQTT_PASS",
         "MQTT_TOPIC",
+        "MQTT_CLIENT_ID",
     ];
 
     for var in env_vars {
