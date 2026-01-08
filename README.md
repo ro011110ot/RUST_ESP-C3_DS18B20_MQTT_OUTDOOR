@@ -1,102 +1,103 @@
-# 🌡️ ESP32-C3 Outdoor Temperature Node (Rust)
+Hier ist die aktualisierte README.md. Ich habe alle Referenzen zum Deep-Sleep entfernt, die kontinuierliche
+Synchronisation hinzugefügt und sichergestellt, dass alles gemäß deinen Vorgaben auf Englisch verfasst ist.
 
-An asynchronous, ultra-low-power IoT application built with **Rust** and **ESP-IDF** for the **ESP32-C3** (RISC-V). This
-node measures outdoor temperature using a **DS18B20** 1-Wire sensor and publishes data via **MQTT** before entering a
-deep sleep cycle.
+🌡️ ESP32-C3 Outdoor Temperature Node (Rust)
+An asynchronous, high-precision IoT application built with Rust and ESP-IDF for the ESP32-C3 (RISC-V). This node
+performs continuous, synchronized temperature measurements using a DS18B20 1-Wire sensor and publishes data via MQTT.
 
----
+🚀 Features
+Continuous Operation: Optimized for mains-powered deployment with a persistent execution loop (Deep-Sleep disabled).
 
-## 🚀 Features
+Synchronized Measurement: Triggers data transmission exactly at XX:00, XX:15, XX:30, and XX:45 using NTP-synchronized
+time.
 
-- **Deep Sleep Architecture**: Maximizes battery life by using a 15-minute measurement cycle with only ~5µA consumption
-  during sleep.
-- **Flash-Efficient Networking**: WiFi NVS (Non-Volatile Storage) caching is disabled (`Storage::Ram`) to prevent flash
-  wear during frequent wake cycles.
-- **Async WiFi & MQTT**: Non-blocking network stack using `esp-idf-svc` and `embedded-svc`.
-- **DS18B20 Support**: Precise temperature readings via a manual 1-Wire implementation on **GPIO 4**.
-- **JSON Payloads**: Optimized for easy ingestion by Home Assistant or Debian-based loggers:  
-  `{"id": "DS18B20_Outdoor", "Temp": 22.50}`
-- **Environment Driven**: Secure credential handling via `.env` and `build.rs` at compile time.
-- **NTP Synchronization**: Syncs internal clock on every boot.
-- **Interval-based Measurement**: Transmits data exactly at XX:00, XX:15, XX:30, and XX:45.
-- **Dynamic Deep Sleep**: Calculates the remaining time to the next 15-minute mark to ensure dashboard alignment.
-- **MQTT Integration**: Sends JSON payloads to a broker for database storage.
+Persistent MQTT Connection: Maintains a stable connection to the broker, reducing overhead and improving reliability
+compared to wake-cycle logic.
 
----
+QoS Level 1 Messaging: Ensures guaranteed delivery of sensor data through broker acknowledgment (AtLeastOnce).
 
-## 🛠 Hardware Setup
+Flash-Efficient Networking: WiFi NVS (Non-Volatile Storage) caching is disabled to prevent unnecessary flash wear.
 
-- **Microcontroller**: ESP32-C3 (e.g., SuperMini or DevKit-C).
-- **Sensor**: DS18B20 (Waterproof version recommended).
-- **Wiring**:
-    - **VCC**: 3.3V
-    - **GND**: Ground
-    - **Data**: **GPIO 4** (Requires a **4.7kΩ pull-up resistor** between VCC and Data).
+DS18B20 1-Wire Implementation: Manual timing-accurate implementation for DS18B20 on GPIO 4.
 
----
+JSON Payloads: Structured for seamless integration with dashboards or databases:
 
-## 📋 Prerequisites & Toolchain
+{"id": "DS18B20_Outdoor", "Temp": 22.50}
 
-1. **Rust & ESP-IDF**:
-   ```bash
-   espup install
-   # Ensure the riscv32imc-esp-espidf target is installed
+Environment Driven: Secure handling of credentials via .env and build.rs at compile time.
+
+🛠 Hardware Setup
+Microcontroller: ESP32-C3 (e.g., SuperMini or DevKit-C).
+
+Sensor: DS18B20 (Waterproof probe recommended).
+
+Wiring:
+
+VCC: 3.3V
+
+GND: Ground
+
+Data: GPIO 4 (Requires a 4.7kΩ pull-up resistor between VCC and Data).
+
+📋 Prerequisites & Toolchain
+Rust & ESP-IDF:
+
+Bash
+
+espup install
+
+# Ensure the riscv32imc-esp-espidf target is installed
 
 Linker: Requires ldproxy for proper ESP-IDF integration.
 
 Editor: Developed using micro on Manjaro/Debian systems.
 
 ⚙️ Configuration
-Create a .env file in the project root to manage your credentials securely:
+Create a .env file in the project root to manage your credentials:
 
 Code-Snippet
 
-```
 WIFI_SSID="Your_SSID"
 WIFI_PASS="Your_Password"
-MQTT_HOST="your.broker.ip"
+MQTT_BROKER="mqtt://your.broker.ip:1883"
 MQTT_USER="your_user"
 MQTT_PASS="your_password"
 MQTT_TOPIC="Sensors/Outdoor"
-```
-
-# 🔨 Build and Flash
-
-The project is pre-configured in .cargo/config.toml to use /dev/ttyACM0.
+🔨 Build and Flash
+The project is configured to use /dev/ttyACM0 (internal JTAG/Serial).
 
 Bash
 
 # Clean build is recommended when changing environment variables
 
-```
 cargo clean
 cargo run
-```
+🔄 Execution Logic
+The device follows a continuous, synchronized execution flow:
 
-# 🔋 Power Management Cycle
+Boot: Initializes peripherals and sets up the English-language logging system.
 
-The device follows a highly efficient execution flow:
+Network: Connects to WiFi and synchronizes internal RTC via NTP.
 
-Wake: RTC Timer triggers a full system boot.
+MQTT Init: Establishes a persistent connection to the specified broker.
 
-Initialize: Sets up peripherals and logging.
+Sync Loop:
 
-Network: Connects to WiFi (RAM storage only, no flash wear).
+Monitors the system clock every second.
 
-Measure: Performs DS18B20 thermal conversion and data read.
+If a 15-minute interval (00, 15, 30, 45) is reached, it enters the 1-minute measurement window.
 
-Publish: Establishes MQTT connection and sends JSON data.
+Measure & Publish: Performs thermal conversion and sends a JSON payload with QoS 1.
 
-Sleep: Enters Deep Sleep for 900 seconds (15 mins). The CPU is powered down.
+Wait: Reverts to idle state until the next interval while keeping the connection alive.
 
-# 🔍 Implementation Notes
+🔍 Implementation Notes
+Language Standard: All code comments, log outputs (info!, error!), and documentation are strictly in English.
 
-__pender Fix: Included a manual no_mangle stub in main.rs to resolve linking conflicts between esp-idf-svc and
-embassy-executor.
+Synchronization: Uses now % 900 logic to ensure this node aligns perfectly with other sensors (e.g., DHT11 nodes) on the
+dashboard.
 
-NVS Protection: By initializing EspWifi with None for the NVS partition, we ensure that the WiFi stack does not perform
-thousands of write cycles to the flash memory over the year.
+NVS Protection: EspWifi is initialized without NVS to protect the flash memory from frequent write operations.
 
-# 📄 License
-
-Distributed under the MIT
+📄 License
+Distributed under the MIT License.
