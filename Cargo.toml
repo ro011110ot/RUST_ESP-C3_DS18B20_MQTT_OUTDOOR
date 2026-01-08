@@ -1,0 +1,60 @@
+[package]
+name = "c3_ds18b20_outdoor"
+version = "0.1.0"
+authors = ["ro011110ot <ro011110ot@gmail.com>"]
+edition = "2021"
+resolver = "2"
+rust-version = "1.77"
+
+[[bin]]
+name = "c3_ds18b20_outdoor"
+harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
+
+[profile.release]
+opt-level = "s"
+
+[profile.dev]
+debug = true    # Symbols are nice, and they don't increase the size on Flash
+opt-level = "z"
+
+[features]
+default = []
+
+experimental = ["esp-idf-svc/experimental"]
+
+[dependencies]
+anyhow = "1.0"
+log = "0.4"
+# Wichtig: Bleib bei diesen Features
+esp-idf-svc = { version = "0.51.0", features = [
+    "embassy-time-driver",
+    "embassy-sync"
+] }
+# Änderung hier: Wir nutzen "arch-riscv32" statt "arch-std"
+# und fügen den "integrated-timers" Support hinzu.
+embassy-executor = { version = "0.7.0", features = ["task-arena-size-4096", "arch-std", "executor-thread"] }
+
+dotenvy = "0.15"
+embedded-svc = "0.28.1"
+esp-idf-hal = "0.45"
+esp-idf-sys = "0.36"
+# --- Optional Embassy Integration ---
+# esp-idf-svc = { version = "0.51", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }
+
+# If you enable embassy-time-driver, you MUST also add one of:
+
+# a) Standalone Embassy libs ( embassy-time, embassy-sync etc.) with a foreign async runtime:
+# embassy-time = { version = "0.4.0", features = ["generic-queue-8"] } # NOTE: any generic-queue variant will work
+
+# b) With embassy-executor:
+# embassy-executor = { version = "0.7", features = ["executor-thread", "arch-std"] }
+
+# NOTE: if you use embassy-time with embassy-executor you don't need the generic-queue-8 feature
+
+# --- Temporary workaround for embassy-executor < 0.8 ---
+# esp-idf-svc = { version = "0.51", features = ["embassy-time-driver", "embassy-sync"] }
+# critical-section = { version = "1.1", features = ["std"], default-features = false }
+
+[build-dependencies]
+embuild = "0.33"
+dotenvy = "0.15.7"
