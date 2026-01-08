@@ -17,6 +17,10 @@ deep sleep cycle.
 - **JSON Payloads**: Optimized for easy ingestion by Home Assistant or Debian-based loggers:  
   `{"id": "DS18B20_Outdoor", "Temp": 22.50}`
 - **Environment Driven**: Secure credential handling via `.env` and `build.rs` at compile time.
+- **NTP Synchronization**: Syncs internal clock on every boot.
+- **Interval-based Measurement**: Transmits data exactly at XX:00, XX:15, XX:30, and XX:45.
+- **Dynamic Deep Sleep**: Calculates the remaining time to the next 15-minute mark to ensure dashboard alignment.
+- **MQTT Integration**: Sends JSON payloads to a broker for database storage.
 
 ---
 

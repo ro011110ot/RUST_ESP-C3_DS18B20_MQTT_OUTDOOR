@@ -33,7 +33,7 @@ esp-idf-svc = { version = "0.51.0", features = [
 # Änderung hier: Wir nutzen "arch-riscv32" statt "arch-std"
 # und fügen den "integrated-timers" Support hinzu.
 embassy-executor = { version = "0.7.0", features = ["task-arena-size-4096", "arch-std", "executor-thread"] }
-
+chrono = "0.4"
 dotenvy = "0.15"
 embedded-svc = "0.28.1"
 esp-idf-hal = "0.45"
