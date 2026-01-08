@@ -21,32 +21,31 @@ fn main() -> anyhow::Result<()> {
     let timer_service = EspTaskTimerService::new()?;
     let nvs = EspDefaultNvsPartition::take()?;
 
-    info!("Booting Node in Continuous Mode (Deep Sleep disabled)...");
+    info!("Booting ESP32-C3 Outdoor Node (Continuous Mode)...");
 
-    // 1. WiFi & NTP Sync
-    info!("Initializing WiFi...");
-    let _wifi = block_on(wifi::connect_wifi(
+    // 1. Initial WiFi & NTP Sync
+    let mut wifi = block_on(wifi::connect_wifi(
         peripherals,
-        sys_loop,
-        timer_service,
+        sys_loop.clone(),
+        timer_service.clone(),
         nvs,
     ))?;
 
     info!("Syncing time via NTP...");
     let _sntp = EspSntp::new_default()?;
 
-    // Wait for valid NTP time
+    // Wait for valid NTP time (Check against Jan 2026 threshold)
     while SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() < 1736340000 {
         info!("Waiting for NTP sync...");
         FreeRtos::delay_ms(2000);
     }
     info!("Time synchronized.");
 
-    // Initialize Sensor Pin
+    // Initialize DS18B20 Sensor on GPIO 4
     let ds_pin = PinDriver::input_output(unsafe { AnyIOPin::new(4) })?;
     let mut sensor = ds18b20::Ds18b20::new(ds_pin);
 
-    // Initialize MQTT Client once (keep connection alive)
+    // Initialize MQTT Client (Keep connection alive)
     let mut mqtt_client = mqtt::create_mqtt_client()?;
 
     let interval = 900; // 15 minutes
@@ -55,13 +54,26 @@ fn main() -> anyhow::Result<()> {
     info!("Entering main loop...");
 
     loop {
+        // --- WIFI RECONNECT CHECK ---
+        match wifi.is_up() {
+            Ok(connected) => {
+                if !connected {
+                    warn!("WiFi link down! Attempting to reconnect...");
+                    let _ = wifi.connect();
+                    FreeRtos::delay_ms(5000);
+                    continue; // Skip interval check until WiFi is back
+                }
+            }
+            Err(e) => error!("WiFi health check error: {:?}", e),
+        }
+
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let current_slot = now - (now % interval);
         let seconds_past_slot = now % interval;
 
-        // Trigger measurement if in the first 60s of a new 15m slot
+        // Trigger measurement in the 1-minute window of the 15m interval
         if current_slot > last_processed_slot && seconds_past_slot < 60 {
-            info!("Interval reached! Starting synchronized measurement...");
+            info!("Interval reached (Sync Window)! Measuring DS18B20...");
 
             if let Some(temp) = sensor.read_temp() {
                 info!("Temperature: {:.2}C", temp);
@@ -69,22 +81,22 @@ fn main() -> anyhow::Result<()> {
                 let topic = format!("{}/DS18B20", env!("MQTT_TOPIC"));
                 let payload = format!(r#"{{"id": "DS18B20_Outdoor", "Temp": {:.2}}}"#, temp);
 
-                info!("Publishing to {}...", topic);
-                if let Err(e) =
-                    mqtt_client.publish(&topic, QoS::AtLeastOnce, false, payload.as_bytes())
-                {
-                    error!("MQTT publish failed: {:?}", e);
-                } else {
-                    info!("Publish successful.");
+                info!("Publishing with QoS 1 to {}...", topic);
+                match mqtt_client.publish(&topic, QoS::AtLeastOnce, false, payload.as_bytes()) {
+                    Ok(_) => {
+                        info!("Publish successful. Waiting for network finalization...");
+                        FreeRtos::delay_ms(5000); // Ensure network stack processes ACKs
+                    }
+                    Err(e) => error!("MQTT publish failed: {:?}", e),
                 }
             } else {
-                warn!("Sensor read failed.");
+                warn!("Sensor reading failed.");
             }
 
             last_processed_slot = current_slot;
         }
 
-        // Small delay to prevent CPU hogging
+        // Prevent CPU starvation
         FreeRtos::delay_ms(1000);
     }
 }
