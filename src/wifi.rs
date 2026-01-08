@@ -13,11 +13,10 @@ pub async fn connect_wifi(
     peripherals: Peripherals,
     sys_loop: EspSystemEventLoop,
     timer_service: EspTaskTimerService,
-    _nvs: EspDefaultNvsPartition, // Wir nutzen nvs hier nicht mehr für WiFi
+    _nvs: EspDefaultNvsPartition,
 ) -> anyhow::Result<AsyncWifi<EspWifi<'static>>> {
-    // Wir übergeben 'None' statt 'Some(nvs)', damit WiFi den Flash nicht nutzt
+    // WiFi initialized without NVS storage for faster connection
     let esp_wifi = EspWifi::new(peripherals.modem, sys_loop.clone(), None)?;
-
     let mut wifi = AsyncWifi::wrap(esp_wifi, sys_loop, timer_service)?;
 
     let wifi_configuration: Configuration = Configuration::Client(ClientConfiguration {
@@ -32,10 +31,10 @@ pub async fn connect_wifi(
     info!("Starting WiFi (NVS storage disabled)...");
     wifi.start().await?;
 
-    info!("Connecting to {}...", SSID);
+    info!("Connecting to SSID: {}...", SSID);
     wifi.connect().await?;
 
-    info!("Waiting for network interface...");
+    info!("Waiting for network interface (IP address)...");
     wifi.wait_netif_up().await?;
 
     Ok(wifi)

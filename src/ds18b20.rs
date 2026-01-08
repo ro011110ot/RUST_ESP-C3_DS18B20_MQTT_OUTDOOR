@@ -1,4 +1,3 @@
-// src/ds18b20.rs
 use esp_idf_svc::hal::delay::Ets;
 use esp_idf_svc::hal::gpio::{IOPin, PinDriver};
 use log::error;
@@ -48,7 +47,7 @@ impl<'a, T: IOPin> Ds18b20<'a, T> {
         Ets::delay_us(10);
         let bit = self.pin.is_low();
         Ets::delay_us(53);
-        !bit // Invertiert, da Pull-up
+        !bit // Inverted due to pull-up resistor
     }
 
     fn read_byte(&mut self) -> u8 {
@@ -63,25 +62,27 @@ impl<'a, T: IOPin> Ds18b20<'a, T> {
 
     pub fn read_temp(&mut self) -> Option<f32> {
         if !self.reset() {
-            error!("DS18B20: Kein Sensor gefunden (Reset fehlgeschlagen)");
+            error!("DS18B20: No sensor found (reset failed)");
             return None;
         }
 
         self.write_byte(0xCC); // Skip ROM
-        self.write_byte(0x44); // Start Conversion
+        self.write_byte(0x44); // Start conversion
 
-        // Warte auf Ende der Konvertierung (parasitäre Speisung nicht unterstützt)
+        // Wait for conversion (750ms for 12-bit)
         Ets::delay_us(750_000);
 
-        if !self.reset() { return None; }
+        if !self.reset() {
+            return None;
+        }
 
-        self.write_byte(0xCC); // Skip ROM
+        self.write_byte(0xCC);
         self.write_byte(0xBE); // Read Scratchpad
 
-        let temp_lsb = self.read_byte();
-        let temp_msb = self.read_byte();
+        let temp_low = self.read_byte() as u16;
+        let temp_high = self.read_byte() as u16;
+        let temp_raw = (temp_high << 8) | temp_low;
 
-        let temp_raw = ((temp_msb as i16) << 8) | (temp_lsb as i16);
         Some(temp_raw as f32 / 16.0)
     }
 }
