@@ -62,7 +62,7 @@ fn main() -> anyhow::Result<()> {
                         reconnect_counter
                     );
 
-                    if reconnect_counter > 20 {
+                    if reconnect_counter > 10 {
                         error!("WiFi recovery failed. Restarting chip...");
                         esp_idf_svc::hal::reset::restart();
                     } else if reconnect_counter % 5 == 0 {
@@ -88,34 +88,48 @@ fn main() -> anyhow::Result<()> {
         let current_slot = now - (now % interval);
         let seconds_past_slot = now % interval;
 
-        // 1. Check if we entered a NEW 15-minute slot
-        if current_slot > last_processed_slot {
-            // 2. Only perform work during the first 60 seconds of that slot
-            if seconds_past_slot < 60 {
-                info!(
-                    "New interval detected ({})! Starting DS18B20 measurement...",
-                    current_slot
-                );
+        if current_slot > last_processed_slot && seconds_past_slot < 60 {
+            info!("New interval detected! Starting measurement...");
 
-                if let Some(temp) = sensor.read_temp() {
-                    info!("Temperature: {:.2}C", temp);
+            if let Some(temp) = sensor.read_temp() {
+                info!("Temperature: {:.2}C", temp);
 
-                    let topic = format!("{}/DS18B20", env!("MQTT_TOPIC"));
-                    let payload = format!(r#"{{"id": "DS18B20_Outdoor", "Temp": {:.2}}}"#, temp);
+                let topic = format!("{}/DS18B20", env!("MQTT_TOPIC"));
+                let payload = format!(r#"{{"id": "DS18B20_Outdoor", "Temp": {:.2}}}"#, temp);
 
-                    info!("Publishing to MQTT with QoS 1...");
-                    match mqtt_client.publish(&topic, QoS::AtLeastOnce, false, payload.as_bytes()) {
-                        Ok(_) => info!("Transmission successful."),
-                        Err(e) => error!("MQTT publish failed: {:?}", e),
+                // --- HARDENED MQTT PUBLISH ---
+                let mut published = false;
+                for attempt in 1..=3 {
+                    // Check if WiFi is even up before trying MQTT
+                    if wifi.is_up().unwrap_or(false) {
+                        match mqtt_client.publish(
+                            &topic,
+                            QoS::AtLeastOnce,
+                            false,
+                            payload.as_bytes(),
+                        ) {
+                            Ok(_) => {
+                                info!("Transmission successful on attempt {}.", attempt);
+                                published = true;
+                                break;
+                            }
+                            Err(e) => {
+                                warn!("MQTT publish attempt {} failed: {:?}", attempt, e);
+                                // Give the background thread some time to reconnect
+                                FreeRtos::delay_ms(3000);
+                            }
+                        }
+                    } else {
+                        warn!("WiFi down, skipping MQTT attempt {}.", attempt);
+                        FreeRtos::delay_ms(5000);
                     }
-                } else {
-                    warn!("Sensor read failed.");
                 }
 
-                // 3. CRITICAL: Mark this slot as processed IMMEDIATELY
-                // to prevent re-entry in the next loop iteration (1s later)
-                last_processed_slot = current_slot;
+                if !published {
+                    error!("Failed to publish data after multiple attempts.");
+                }
             }
+            last_processed_slot = current_slot;
         }
 
         // Prevent CPU starvation
