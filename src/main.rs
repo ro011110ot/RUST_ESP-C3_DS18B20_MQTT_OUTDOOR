@@ -23,7 +23,7 @@ fn main() -> anyhow::Result<()> {
 
     info!("Booting ESP32-C3 Outdoor Node (Enhanced Recovery)...");
 
-    // 1. Initial WiFi Setup
+    // 1. Initial Wi-Fi Setup
     let mut wifi = block_on(wifi::connect_wifi(
         peripherals,
         sys_loop.clone(),
@@ -31,7 +31,7 @@ fn main() -> anyhow::Result<()> {
         nvs,
     ))?;
 
-    // 2. NTP Sync
+    // 2. NTP Sync - Ensure system time is valid for interval calculations
     let _sntp = EspSntp::new_default()?;
     while SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() < 1736340000 {
         info!("Waiting for NTP sync...");
@@ -39,48 +39,48 @@ fn main() -> anyhow::Result<()> {
     }
     info!("Time synchronized.");
 
-    // 3. Sensor & MQTT Initialization
-    // GPIO 4 for DS18B20
+    // 3. Sensor & MQTT Initialization (GPIO 4 for DS18B20)
     let ds_pin = PinDriver::input_output(unsafe { AnyIOPin::new(4) })?;
     let mut sensor = ds18b20::Ds18b20::new(ds_pin);
     let mut mqtt_client = mqtt::create_mqtt_client()?;
 
-    let interval = 900; // 15 minutes
+    let interval = 900; // 15 minutes in seconds
     let mut last_processed_slot = 0;
     let mut reconnect_counter = 0;
 
     info!("Entering main loop...");
 
     loop {
-        // --- WIFI RECOVERY LOGIC ---
+        // --- WI-FI RECOVERY LOGIC ---
         match wifi.is_up() {
             Ok(connected) => {
                 if !connected {
                     reconnect_counter += 1;
                     warn!(
-                        "WiFi link lost (Attempt {}). Reconnecting...",
+                        "Wi-Fi lost (Attempt {}). Reconnecting...",
                         reconnect_counter
                     );
 
                     if reconnect_counter > 10 {
-                        error!("WiFi recovery failed. Restarting chip...");
+                        error!("Wi-Fi recovery failed. Restarting chip...");
                         esp_idf_svc::hal::reset::restart();
                     } else if reconnect_counter % 5 == 0 {
-                        info!("Cycling WiFi stack to clear driver state...");
-                        let _ = wifi.stop();
+                        info!("Cycling Wi-Fi stack to clear driver state...");
+                        // Use block_on for async methods to fix non-binding future warnings
+                        let _ = block_on(wifi.stop());
                         FreeRtos::delay_ms(1000);
-                        let _ = wifi.start();
+                        let _ = block_on(wifi.start());
                     }
-
-                    let _ = wifi.connect();
+                    // Use block_on here as well to ensure connection is initiated
+                    let _ = block_on(wifi.connect());
                     FreeRtos::delay_ms(5000);
                     continue;
                 } else if reconnect_counter > 0 {
-                    info!("WiFi connection re-established!");
+                    info!("Wi-Fi connection re-established!");
                     reconnect_counter = 0;
                 }
             }
-            Err(e) => error!("WiFi health check error: {:?}", e),
+            Err(e) => error!("Wi-Fi health check error: {:?}", e),
         }
 
         // --- MEASUREMENT LOGIC ---
@@ -97,42 +97,33 @@ fn main() -> anyhow::Result<()> {
                 let topic = format!("{}/DS18B20", env!("MQTT_TOPIC"));
                 let payload = format!(r#"{{"id": "DS18B20_Outdoor", "Temp": {:.2}}}"#, temp);
 
-                // --- HARDENED MQTT PUBLISH ---
                 let mut published = false;
                 for attempt in 1..=3 {
-                    // Check if WiFi is even up before trying MQTT
                     if wifi.is_up().unwrap_or(false) {
                         match mqtt_client.publish(
                             &topic,
                             QoS::AtLeastOnce,
-                            false,
+                            true,
                             payload.as_bytes(),
                         ) {
                             Ok(_) => {
-                                info!("Transmission successful on attempt {}.", attempt);
+                                info!("Published on attempt {}.", attempt);
                                 published = true;
                                 break;
                             }
                             Err(e) => {
-                                warn!("MQTT publish attempt {} failed: {:?}", attempt, e);
-                                // Give the background thread some time to reconnect
+                                warn!("MQTT attempt {} failed: {:?}", attempt, e);
                                 FreeRtos::delay_ms(3000);
                             }
                         }
-                    } else {
-                        warn!("WiFi down, skipping MQTT attempt {}.", attempt);
-                        FreeRtos::delay_ms(5000);
                     }
                 }
-
                 if !published {
-                    error!("Failed to publish data after multiple attempts.");
+                    error!("Failed to publish data after all retries.");
                 }
             }
             last_processed_slot = current_slot;
         }
-
-        // Prevent CPU starvation
         FreeRtos::delay_ms(1000);
     }
 }

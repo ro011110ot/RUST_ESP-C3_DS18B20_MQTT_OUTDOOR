@@ -1,8 +1,8 @@
-// mqtt.rs
 use esp_idf_svc::mqtt::client::*;
 use log::{error, info};
 use std::time::Duration;
 
+/// Creates and configures the MQTT client with environment variables.
 pub fn create_mqtt_client() -> anyhow::Result<EspMqttClient<'static>> {
     let url = env!("MQTT_BROKER");
     let user = env!("MQTT_USER");
@@ -15,10 +15,9 @@ pub fn create_mqtt_client() -> anyhow::Result<EspMqttClient<'static>> {
         client_id: Some(client_id),
         username: Some(user),
         password: Some(pass),
-        // Increased keep-alive to be more resilient against minor network jitter
+        // Robust keep-alive for outdoor stability
         keep_alive_interval: Some(Duration::from_secs(120)),
         network_timeout: Duration::from_secs(15),
-        // Automatically reconnect if connection is lost
         reconnect_timeout: Some(Duration::from_secs(5)),
         ..Default::default()
     };
